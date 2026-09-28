@@ -1,6 +1,8 @@
+# Import libraries
 import streamlit as st
 import pandas as pd
-from data_loader import load_data  # Imports the data loading function
+from data_loader import load_data
+
 
 # Loads the reservoir data
 df = load_data()
@@ -28,9 +30,20 @@ series_columns = [
     "endring_fyllingsgrad"
 ]
 
+# English labels for the variables
+variable_labels = {
+    "fyllingsgrad": "Fill level (%)",
+    "fylling_TWh": "Stored energy (TWh)",
+    "fyllingsgrad_forrige_uke": "Previous week fill level (%)",
+    "endring_fyllingsgrad": "Weekly change (percentage points)"
+}
+
 # Creates one row for each selected variable
 table_data = pd.DataFrame({
-    "Variable": series_columns,
+    "Variable": [
+        variable_labels[column]
+        for column in series_columns
+    ],
     "First month": [
         first_month_data[column].tolist()
         for column in series_columns
@@ -53,19 +66,4 @@ st.dataframe(
         )
     },
     hide_index=True
-)
-
-
-import pandas as pd
-import streamlit as st
-
-data_df = pd.DataFrame(
-    {
-        "sales": [
-            [0, 4, 26, 80, 100, 40],
-            [80, 20, 80, 35, 40, 100],
-            [10, 20, 80, 80, 70, 0],
-            [10, 100, 20, 100, 30, 100],
-        ],
-    }
 )

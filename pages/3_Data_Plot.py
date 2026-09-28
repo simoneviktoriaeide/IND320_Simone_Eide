@@ -1,10 +1,10 @@
-
-# Import neseccary libraries
+# Import necessary libraries
 import streamlit as st
 import pandas as pd
-from data_loader import load_data  # Imports the data loading function
+from data_loader import load_data
 import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator # For more detailed y axis
+from matplotlib.ticker import MultipleLocator
+
 
 st.title("Reservoir Data Plot")
 
@@ -14,6 +14,7 @@ df = load_data()
 # Converts the date column to datetime
 df["dato_Id"] = pd.to_datetime(df["dato_Id"])
 
+# Sorts the data by date
 df = df.sort_values("dato_Id")
 
 # Creates area labels such as NO0, EL1 and VASS1
@@ -21,6 +22,22 @@ df["area"] = df["omrType"] + df["omrnr"].astype(str)
 
 # Creates a list of available areas
 areas = sorted(df["area"].unique().tolist())
+
+# Variables available for plotting
+plot_columns = [
+    "fyllingsgrad",
+    "fylling_TWh",
+    "fyllingsgrad_forrige_uke",
+    "endring_fyllingsgrad"
+]
+
+# English labels for the variables
+variable_labels = {
+    "fyllingsgrad": "Fill level (%)",
+    "fylling_TWh": "Stored energy (TWh)",
+    "fyllingsgrad_forrige_uke": "Previous week fill level (%)",
+    "endring_fyllingsgrad": "Weekly change (percentage points)"
+}
 
 # Selects which area to display, with Norway as default
 selected_area = st.selectbox(
@@ -32,18 +49,11 @@ selected_area = st.selectbox(
 # Filters the data based on the selected area
 area_data = df[df["area"] == selected_area].copy()
 
-# Variables available for plotting
-plot_columns = [
-    "fyllingsgrad",
-    "fylling_TWh",
-    "fyllingsgrad_forrige_uke",
-    "endring_fyllingsgrad"
-]
-
 # Selects which variable to plot
 selected_variable = st.selectbox(
     "Select variable",
-    ["All variables"] + plot_columns
+    ["All variables"] + plot_columns,
+    format_func=lambda x: variable_labels.get(x, x)
 )
 
 # Creates a sorted list of months in the dataset
@@ -65,13 +75,6 @@ filtered_data = area_data[
     (area_data["dato_Id"].dt.to_period("M") >= pd.Period(start_month)) &
     (area_data["dato_Id"].dt.to_period("M") <= pd.Period(end_month))
 ]
-# Labels for the variables
-variable_labels = {
-    "fyllingsgrad": "Fill level (%)",
-    "fylling_TWh": "Stored energy (TWh)",
-    "fyllingsgrad_forrige_uke": "Previous week fill level (%)",
-    "endring_fyllingsgrad": "Weekly change (percentage points)"
-}
 
 
 # Plots one selected variable
@@ -112,7 +115,8 @@ else:
     # Gets the reservoir capacity for the selected area
     capacity = area_data["kapasitet_TWh"].iloc[0]
 
-    # Converts the variables to a common percentage-based scale
+    # Converts reservoir levels to percent
+    # and weekly change to percentage points
     fill_level = filtered_data["fyllingsgrad"] * 100
 
     previous_week = (
@@ -123,7 +127,7 @@ else:
         filtered_data["endring_fyllingsgrad"] * 100
     )
 
-    # Plots all variables together
+    # Plots the variables together
     ax.plot(
         filtered_data["dato_Id"],
         fill_level,
@@ -159,12 +163,15 @@ else:
 
     ax.set_ylim(lower_limit, 100)
 
+    # Uses 10-unit intervals on the y-axis
     ax.yaxis.set_major_locator(MultipleLocator(10))
 
-    ax.set_title(f"Reservoir development - {selected_area}")
+    ax.set_title(
+        f"Reservoir development - {selected_area}"
+    )
     ax.set_xlabel("Date")
     ax.set_ylabel(
-        "Reservoir level (% of capacity) / weekly change (percentage points)"
+        "% of total capacity / weekly change (percentage points)"
     )
 
     ax.legend()
@@ -176,7 +183,7 @@ else:
 
     st.caption(
         f"Reservoir capacity for {selected_area}: "
-        f"{capacity:.2f} TWh. Stored energy is shown as a "
-        "percentage of capacity. Weekly change is shown in "
-        "percentage points."
+        f"{capacity:.2f} TWh. Fill level represents stored energy "
+        "as a percentage of reservoir capacity. Weekly change is "
+        "shown in percentage points."
     )
