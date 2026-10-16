@@ -20,8 +20,19 @@ df = df.sort_values("dato_Id")
 # Creates area labels such as NO0, EL1 and VASS1
 df["area"] = df["omrType"] + df["omrnr"].astype(str)
 
-# Creates a list of available areas
-areas = sorted(df["area"].unique().tolist())
+# Selects the area type
+selected_area_type = st.radio(
+    "Select area type",
+    ["EL", "NO", "VASS"],
+    horizontal=True
+)
+
+# Creates a list of areas belonging to the selected type
+areas = sorted(
+    df.loc[df["omrType"] == selected_area_type, "area"]
+    .unique()
+    .tolist()
+)
 
 # Variables available for plotting
 plot_columns = [
@@ -39,11 +50,11 @@ variable_labels = {
     "endring_fyllingsgrad": "Weekly change (percentage points)"
 }
 
-# Selects which area to display, with Norway as default
+
 selected_area = st.selectbox(
     "Select area",
     areas,
-    index=areas.index("NO0")
+    index=0
 )
 
 # Filters the data based on the selected area
