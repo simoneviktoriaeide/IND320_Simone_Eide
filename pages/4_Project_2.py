@@ -107,9 +107,8 @@ try:
             )
         else:
             st.info(
-            "No data available for the selected period. "
-            "Electricity flow data is only available from October 2024 onwards. "
-            "Please select a month within the available date range."
+            "No electricity flow data is available for the "
+            "selected year and connection."
             )
 
     with right_col:
@@ -134,7 +133,11 @@ try:
             ]
 
             if month_df.empty:
-                st.info("No data is available for the selected months.")
+                st.info(
+                "No electricity flow data is available for the selected months. "
+                "The dataset starts in October 2024. "
+                "Please try selecting a different month or year."
+                )
             else:
                 # Place import and export in separate columns for plotting.
                 daily_plot = month_df.pivot_table(
