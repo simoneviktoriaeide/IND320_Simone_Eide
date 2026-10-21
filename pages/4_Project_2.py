@@ -106,7 +106,11 @@ try:
                 use_container_width=True,
             )
         else:
-            st.info("No energy values are available for this year and connection.")
+            st.info(
+            "No data available for the selected period. "
+            "Electricity flow data is only available from October 2024 onwards. "
+            "Please select a month within the available date range."
+            )
 
     with right_col:
         st.subheader("Daily electricity flow")
