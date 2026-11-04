@@ -219,3 +219,8 @@ __marimo__/
 
 # Local data backups
 *.pkl
+
+# Ignore downloaded weather batches and cache
+data/weather_data/*
+!data/weather_data/NO3_weather_2024.parquet
+data/weather_cache.sqlite
