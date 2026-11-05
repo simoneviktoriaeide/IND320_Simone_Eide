@@ -1,4 +1,16 @@
 streamlit
 pandas
 matplotlib
-pymongo 
+pymongo
+numpy
+scipy
+scikit-learn
+statsmodels
+plotly
+requests
+openmeteo-requests
+requests-cache
+retry-requests
+pyarrow
+geopandas
+shapely

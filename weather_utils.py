@@ -210,6 +210,7 @@ def detect_precipitation_outliers(data, cutoff=30, n_std=3):
     # Convert SPC limits back to the original precipitation scale
     baseline = values - highpass
     upper_original = baseline + upper_limit
+    lower_original = baseline + lower_limit
 
     # Create the precipitation outlier plot
     fig, ax = plt.subplots(figsize=(14, 5))
@@ -230,6 +231,15 @@ def detect_precipitation_outliers(data, cutoff=30, n_std=3):
         color="orange",
         linestyle="--",
         label="Upper SPC limit"
+    )
+    # Plot the lower SPC limit
+    ax.plot(
+        time,
+        lower_original,
+        color="seagreen",
+        linestyle="--",
+        linewidth=1,
+        label="Lower SPC limit"
     )
 
     # Highlight detected outliers
