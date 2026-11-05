@@ -4,6 +4,7 @@ import pandas as pd
 from data_loader import load_data
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
+from area_selector import select_area
 
 
 st.title("Reservoir Data Plot")
@@ -20,19 +21,8 @@ df = df.sort_values("dato_Id")
 # Creates area labels such as NO0, EL1 and VASS1
 df["area"] = df["omrType"] + df["omrnr"].astype(str)
 
-# Selects the area type
-selected_area_type = st.radio(
-    "Select area type",
-    ["EL", "NO", "VASS"],
-    horizontal=True
-)
-
-# Creates a list of areas belonging to the selected type
-areas = sorted(
-    df.loc[df["omrType"] == selected_area_type, "area"]
-    .unique()
-    .tolist()
-)
+# Display the shared area selector
+selected_area = select_area()
 
 # Variables available for plotting
 plot_columns = [
@@ -50,12 +40,6 @@ variable_labels = {
     "endring_fyllingsgrad": "Weekly change (percentage points)"
 }
 
-
-selected_area = st.selectbox(
-    "Select area",
-    areas,
-    index=0
-)
 
 # Filters the data based on the selected area
 area_data = df[df["area"] == selected_area].copy()

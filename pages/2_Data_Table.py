@@ -3,7 +3,7 @@
 import streamlit as st
 import pandas as pd
 from data_loader import load_data
-
+from area_selector import select_area
 
 st.title("Reservoir Data Table")
 
@@ -19,12 +19,14 @@ df = df.sort_values("dato_Id")
 # Creates area labels such as NO0, EL1 and VASS1
 df["area"] = df["omrType"] + df["omrnr"].astype(str)
 
-# Selects the area type
-selected_area_type = st.radio(
-    "Select area type",
-    ["EL", "NO", "VASS"],
-    horizontal=True
-)
+
+# Display the shared area selector
+selected_area = select_area()
+
+# Identify the area type from the selected area
+selected_area_type = df.loc[
+    df["area"] == selected_area, "omrType"
+].iloc[0]
 
 # Filters data based on the selected area type
 area_type_data = df[
@@ -82,9 +84,11 @@ for area in sorted(first_month_data["area"].unique()):
 # Creates a DataFrame for the Streamlit table
 table_data = pd.DataFrame(table_rows)
 
+# Displays the selected area and time period
 st.write(
     f"Reservoir data for **{selected_area_type}** areas "
-    f"during the first month in the dataset: **{first_month}**"
+    f"during the first month in the dataset: **{first_month}**. "
+    f"Selected area: **{selected_area}**."
 )
 
 # Displays a line chart for each variable and area
