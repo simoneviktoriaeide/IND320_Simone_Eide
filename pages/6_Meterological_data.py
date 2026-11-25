@@ -1,14 +1,16 @@
-
+# Import necessary libraries
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-import matplotlib.pyplot as plt
 
 from area_selector import select_area
+
 from weather_utils import (
     download_streamlit_weather,
     detect_precipitation_outliers,
-    detect_temperature_anomalies
+    detect_temperature_anomalies,
+    detect_precipitation_anomalies,
+    detect_temperature_satv
 )
 
 
@@ -32,11 +34,11 @@ h2, h3 {
     letter-spacing: -0.025em;
 }
 
-/* Dark blue primary buttons */
+/* Hydro-inspired dark blue primary buttons */
 div.stButton > button[kind="primary"] {
-    background-color: #294B70;
+    background-color: #003B5C;
     color: #FFFFFF;
-    border: 1px solid #294B70;
+    border: 1px solid #003B5C;
     border-radius: 10px;
     font-weight: 600;
     min-height: 48px;
@@ -44,14 +46,14 @@ div.stButton > button[kind="primary"] {
 }
 
 div.stButton > button[kind="primary"]:hover {
-    background-color: #365F89;
+    background-color: #007FA3;
     color: #FFFFFF;
-    border-color: #365F89;
+    border-color: #007FA3;
 }
 
 div.stButton > button[kind="primary"]:focus {
     color: #FFFFFF;
-    border-color: #365F89;
+    border-color: #007FA3;
 }
 
 /* Full-width analysis tabs */
@@ -77,12 +79,12 @@ button[data-baseweb="tab"] {
 
 /* Active tab styling */
 button[data-baseweb="tab"][aria-selected="true"] {
-    color: #294B70;
+    color: #003B5C;
 }
 
 /* Active tab underline */
 div[data-baseweb="tab-highlight"] {
-    background-color: #294B70;
+    background-color: #003B5C;
     height: 3px;
 }
 
@@ -103,8 +105,8 @@ div[role="radiogroup"] label {
 
 /* Hover effect for area selection */
 div[role="radiogroup"] label:hover {
-    background-color: rgba(41, 75, 112, 0.07);
-    border-color: rgba(41, 75, 112, 0.35);
+    background-color: rgba(0, 59, 92, 0.07);
+    border-color: rgba(0, 59, 92, 0.35);
 }
 
 /* Improve metric appearance */
@@ -504,43 +506,59 @@ if weather_key in st.session_state["weather_data"]:
         "precipitation events or temperature anomalies."
     )
 
-    # Create two equally sized analysis tabs
     tab_spc, tab_lof = st.tabs([
-        "🌧️ Precipitation · DCT/SPC",
-        "🌡️ Temperature · LOF"
+        "🌡️ Weather · DCT/SATV/SPC",
+        "🔍 Weather · LOF"
     ])
 
 
     # -----------------------------------------------------
-    # TAB 1: PRECIPITATION DCT/SPC
+    # TAB 1: WEATHER DCT / SATV / SPC
     # -----------------------------------------------------
 
     with tab_spc:
 
-        st.subheader("Precipitation Outlier Detection")
+        st.subheader("DCT High-Pass Filtering and SPC")
 
-        st.write(
-            "Identify unusual precipitation events using "
-            "Discrete Cosine Transform (DCT) filtering "
-            "and robust Statistical Process Control (SPC)."
+        # Select the weather property to analyse; temperature is the default
+        dct_property = st.selectbox(
+            "Select weather property for DCT",
+            ["Temperature", "Precipitation"],
+            index=0,
+            key="dct_weather_property"
         )
 
-        # Calculate average hourly precipitation
+        if dct_property == "Temperature":
+            st.write(
+                "Explore seasonally adjusted temperature variations (SATV) "
+                "using DCT high-pass filtering, with robust SPC limits "
+                "to highlight unusual deviations."
+            )
+        else:
+            st.write(
+                "Identify unusual precipitation events using "
+                "Discrete Cosine Transform (DCT) filtering "
+                "and robust Statistical Process Control (SPC)."
+            )
+
+        # Calculate hourly mean values for both weather properties
         hourly_precipitation = (
             weather_df
             .groupby("time")["precipitation"]
             .mean()
             .reset_index()
-            .rename(
-                columns={"precipitation": "mean_precipitation"}
-            )
+            .rename(columns={"precipitation": "mean_precipitation"})
+        )
+
+        hourly_temperature_dct = (
+            weather_df
+            .groupby("time")["temperature_2m"]
+            .mean()
+            .reset_index(name="mean_temperature")
         )
 
         # Display adjustable analysis settings
-        with st.expander(
-            "Analysis Settings",
-            expanded=True
-        ):
+        with st.expander("Analysis Settings", expanded=True):
 
             cutoff = st.slider(
                 "DCT cutoff",
@@ -558,16 +576,29 @@ if weather_key in st.session_state["weather_data"]:
                 step=0.5
             )
 
-        # Perform precipitation outlier detection
-        fig, summary = detect_precipitation_outliers(
-            hourly_precipitation,
-            cutoff=cutoff,
-            n_std=n_std
-        )
+        # Run the analysis for the selected weather property
+        if dct_property == "Temperature":
 
-        # Display precipitation analysis plot
-        st.pyplot(fig)
-        plt.close(fig)
+            fig, summary = detect_temperature_satv(
+                hourly_temperature_dct,
+                cutoff=cutoff,
+                n_std=n_std
+            )
+
+        else:
+
+            fig, summary = detect_precipitation_outliers(
+                hourly_precipitation,
+                cutoff=cutoff,
+                n_std=n_std
+            )
+
+        # Display the interactive analysis using the shared Hydro theme
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            theme=None
+        )
 
         # Display key analysis results
         st.markdown("#### Analysis Results")
@@ -586,26 +617,53 @@ if weather_key in st.session_state["weather_data"]:
                 f"{summary['Percentage (%)']:.2f}%"
             )
 
-        st.caption(
-            "Outliers are identified using high-pass "
-            "filtered precipitation and robust "
-            "statistical thresholds."
-        )
+        # Explain the selected DCT analysis
+        if dct_property == "Temperature":
+
+            st.caption(
+                "SATV shows DCT high-pass filtered temperature variations. "
+                "Robust SPC limits highlight unusually large deviations."
+            )
+
+        else:
+
+            st.caption(
+                "Outliers are identified using high-pass filtered "
+                "precipitation and robust statistical thresholds."
+            )
 
 
     # -----------------------------------------------------
-    # TAB 2: TEMPERATURE LOF
+    # TAB 2: WEATHER LOF
     # -----------------------------------------------------
 
     with tab_lof:
 
-        st.subheader("Temperature Anomaly Detection")
+        st.subheader("Weather Anomaly Detection")
 
-        st.write(
-            "Identify unusual temperature patterns "
-            "using Local Outlier Factor (LOF) after "
-            "removing the local temperature trend."
+        # Let the user choose which weather property to analyze
+        weather_property = st.selectbox(
+            "Select weather property for LOF",
+            ["Temperature", "Precipitation"],
+            index=0
         )
+
+        # Explain the selected LOF analysis
+        if weather_property == "Temperature":
+
+            st.write(
+                "Identify unusual temperature patterns "
+                "using Local Outlier Factor (LOF) after "
+                "removing the local temperature trend."
+            )
+
+        else:
+
+            st.write(
+                "Identify unusual precipitation intensities "
+                "using Local Outlier Factor (LOF) on "
+                "hours with measurable precipitation."
+            )
 
         # Calculate average hourly temperature
         hourly_temperature = (
@@ -638,25 +696,41 @@ if weather_key in st.session_state["weather_data"]:
                 step=5
             )
 
-            window_days = st.slider(
-                "Temperature trend window (days)",
-                min_value=1,
-                max_value=30,
-                value=7,
-                step=1
+            # Show the trend window only for temperature analysis
+            if weather_property == "Temperature":
+
+                window_days = st.slider(
+                    "Temperature trend window (days)",
+                    min_value=1,
+                    max_value=30,
+                    value=7,
+                    step=1
+                )
+
+        # Perform LOF anomaly detection for the selected weather property
+        if weather_property == "Temperature":
+
+            fig_lof, summary_lof = detect_temperature_anomalies(
+                hourly_temperature,
+                contamination=contamination,
+                n_neighbors=n_neighbors,
+                window_days=window_days
             )
 
-        # Perform temperature anomaly detection
-        fig_lof, summary_lof = detect_temperature_anomalies(
-            hourly_temperature,
-            contamination=contamination,
-            n_neighbors=n_neighbors,
-            window_days=window_days
-        )
+        else:
 
-        # Display temperature anomaly plot
-        st.pyplot(fig_lof)
-        plt.close(fig_lof)
+            fig_lof, summary_lof = detect_precipitation_anomalies(
+                hourly_precipitation,
+                contamination=contamination,
+                n_neighbors=n_neighbors
+            )
+
+        # Display the interactive LOF anomaly plot
+        st.plotly_chart(
+            fig_lof,
+            use_container_width=True,
+            theme=None
+        )
 
         # Display key analysis results
         st.markdown("#### Analysis Results")
@@ -664,19 +738,32 @@ if weather_key in st.session_state["weather_data"]:
         result_col1, result_col2 = st.columns(2)
 
         with result_col1:
+
             st.metric(
                 "Detected Anomalies",
                 summary_lof["Number of anomalies"]
             )
 
         with result_col2:
+
             st.metric(
                 "Anomaly Percentage",
                 f"{summary_lof['Percentage (%)']:.2f}%"
             )
 
-        st.caption(
-            "Anomalies are identified using "
-            "trend-adjusted temperature deviations "
-            "and Local Outlier Factor."
-        )
+        # Explain how anomalies are detected for the selected property
+        if weather_property == "Temperature":
+
+            st.caption(
+                "Anomalies are identified using "
+                "trend-adjusted temperature deviations "
+                "and Local Outlier Factor."
+            )
+
+        else:
+
+            st.caption(
+                "Anomalies are identified using "
+                "rainfall intensity during rainy hours "
+                "and Local Outlier Factor."
+            )

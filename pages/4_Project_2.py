@@ -1,10 +1,11 @@
 import calendar
 from urllib.parse import quote_plus
 
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import pandas as pd
 import streamlit as st
 from pymongo import MongoClient
+from plot_theme import DARK_BLUE, WATER_BLUE
 
 
 st.title("Cross-Border Electricity Flow")
@@ -85,30 +86,69 @@ try:
 
     # Calculate the annual energy total for each direction (MWh).
     direction_totals = connection_df.groupby("direction")["total_mwh"].sum()
-    direction_totals = direction_totals.reindex(["Import", "Export"], fill_value=0)
+    direction_totals = direction_totals.reindex(
+        ["Import", "Export"], fill_value=0
+    )
 
     with left_col:
         if direction_totals.sum() > 0:
-            fig, ax = plt.subplots(figsize=(5, 4))
-            ax.pie(
-                direction_totals,
-                labels=direction_totals.index,
-                autopct="%1.1f%%",
-                startangle=90,
-                colors=["#B65C91", "#258A93"],
+
+            # Create an interactive pie chart.
+            fig = go.Figure(
+                data=[
+                    go.Pie(
+                        labels=direction_totals.index,
+                        values=direction_totals.values,
+                        marker=dict(
+                            colors=[DARK_BLUE, WATER_BLUE]
+                        ),
+                        textinfo="label+percent",
+                        textposition="inside",
+                        textfont=dict(color="white"),
+                        sort=False,
+                        rotation=90,
+                        hovertemplate=(
+                            "%{label}<br>"
+                            "Energy: %{value:,.0f} MWh<br>"
+                            "Share: %{percent}"
+                            "<extra></extra>"
+                        )
+                    )
+                ]
             )
-            ax.set_title(f"Import vs Export: {selected_connection} ({selected_year})")
-            st.pyplot(fig)
-            plt.close(fig)
-            st.caption("Annual total electricity flow, measured in MWh.")
+
+            # Apply the shared Hydro-inspired theme.
+            fig.update_layout(
+                template="hydro",
+                title=(
+                    f"Import vs Export: "
+                    f"{selected_connection} ({selected_year})"
+                ),
+                height=450,
+                showlegend=False,
+                margin=dict(l=20, r=20, t=80, b=20)
+            )
+
+            # Display the interactive pie chart.
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                theme=None
+            )
+
+            st.caption(
+                "Annual total electricity flow, measured in MWh."
+            )
+
             st.dataframe(
                 direction_totals.rename("Total energy (MWh)").to_frame(),
                 use_container_width=True,
             )
+
         else:
             st.info(
-            "No electricity flow data is available for the "
-            "selected year and connection."
+                "No electricity flow data is available for the "
+                "selected year and connection."
             )
 
     with right_col:
@@ -126,6 +166,7 @@ try:
 
         if not selected_months:
             st.info("Select at least one month to display the line chart.")
+
         else:
             # Filter the selected connection to the chosen months.
             month_df = connection_df[
@@ -134,10 +175,11 @@ try:
 
             if month_df.empty:
                 st.info(
-                "No electricity flow data is available for the selected months. "
-                "The dataset starts in October 2024. "
-                "Please try selecting a different month or year."
+                    "No electricity flow data is available for the selected months. "
+                    "The dataset starts in October 2024. "
+                    "Please try selecting a different month or year."
                 )
+
             else:
                 # Place import and export in separate columns for plotting.
                 daily_plot = month_df.pivot_table(
@@ -147,25 +189,78 @@ try:
                     aggfunc="sum",
                 ).sort_index()
 
-                fig, ax = plt.subplots(figsize=(7, 4))
-
                 daily_plot = daily_plot.reindex(
                     columns=["Import", "Export"]
                 )
 
-                daily_plot.plot(
-                    ax=ax,
-                    color=["#B65C91", "#258A93"],
-                    linewidth=2,
+                # Preserve missing dates to avoid connecting separate months.
+                daily_plot = daily_plot.asfreq("D")
+
+                # Create an interactive line chart.
+                fig = go.Figure()
+
+                # Plot daily electricity imports.
+                fig.add_trace(
+                    go.Scatter(
+                        x=daily_plot.index,
+                        y=daily_plot["Import"],
+                        mode="lines",
+                        name="Import",
+                        line=dict(
+                            color=DARK_BLUE,
+                            width=2.5
+                        ),
+                        connectgaps=False,
+                        hovertemplate=(
+                            "%{y:,.0f} MWh<extra>Import</extra>"
+                        )
+                    )
                 )
-                ax.set_title(f"Daily flow: {selected_connection} ({selected_year})")
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Energy (MWh)")
-                ax.legend(title="Direction")
-                fig.autofmt_xdate()
-                fig.tight_layout()
-                st.pyplot(fig)
-                plt.close(fig)
+
+                # Plot daily electricity exports.
+                fig.add_trace(
+                    go.Scatter(
+                        x=daily_plot.index,
+                        y=daily_plot["Export"],
+                        mode="lines",
+                        name="Export",
+                        line=dict(
+                            color=WATER_BLUE,
+                            width=2.5
+                        ),
+                        connectgaps=False,
+                        hovertemplate=(
+                            "%{y:,.0f} MWh<extra>Export</extra>"
+                        )
+                    )
+                )
+
+                # Apply the shared Hydro-inspired theme.
+                fig.update_layout(
+                    template="hydro",
+                    title=(
+                        f"Daily flow: "
+                        f"{selected_connection} ({selected_year})"
+                    ),
+                    xaxis_title="Date",
+                    yaxis_title="Energy (MWh)",
+                    hovermode="x unified",
+                    height=450,
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom",
+                        y=1.02,
+                        xanchor="left",
+                        x=0
+                    )
+                )
+
+                # Display the interactive line chart.
+                st.plotly_chart(
+                    fig,
+                    use_container_width=True,
+                    theme=None
+                )
 
     # Document where the displayed data comes from.
     with st.expander("Data source and processing"):

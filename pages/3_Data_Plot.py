@@ -1,10 +1,10 @@
 # Import necessary libraries
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from data_loader import load_data
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MultipleLocator
 from area_selector import select_area
+from plot_theme import DARK_BLUE, WATER_BLUE, BAUXITE_RED, GREY
 
 
 st.title("Reservoir Data Plot")
@@ -40,9 +40,21 @@ variable_labels = {
     "endring_fyllingsgrad": "Weekly change (percentage points)"
 }
 
+# Assigns consistent colours to the variables
+variable_colors = {
+    "fyllingsgrad": DARK_BLUE,
+    "fylling_TWh": WATER_BLUE,
+    "fyllingsgrad_forrige_uke": WATER_BLUE,
+    "endring_fyllingsgrad": BAUXITE_RED
+}
 
 # Filters the data based on the selected area
 area_data = df[df["area"] == selected_area].copy()
+
+# Checks whether data is available
+if area_data.empty:
+    st.warning("No reservoir data available for the selected area.")
+    st.stop()
 
 # Selects which variable to plot
 selected_variable = st.selectbox(
@@ -71,10 +83,8 @@ filtered_data = area_data[
     (area_data["dato_Id"].dt.to_period("M") <= pd.Period(end_month))
 ]
 
-
 # Plots one selected variable
 if selected_variable != "All variables":
-    fig, ax = plt.subplots()
 
     # Converts ratios to percentages when relevant
     if selected_variable in [
@@ -86,26 +96,45 @@ if selected_variable != "All variables":
     else:
         y_data = filtered_data[selected_variable]
 
-    ax.plot(
-        filtered_data["dato_Id"],
-        y_data
+    # Creates an interactive Plotly figure
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Scatter(
+            x=filtered_data["dato_Id"],
+            y=y_data,
+            mode="lines+markers",
+            name=variable_labels[selected_variable],
+            line=dict(
+                color=variable_colors[selected_variable],
+                width=2.5
+            )
+        )
     )
 
-    ax.set_title(
-        f"{variable_labels[selected_variable]} - {selected_area}"
+    # Applies the shared Hydro-inspired theme
+    fig.update_layout(
+        template="hydro",
+        title=f"{variable_labels[selected_variable]} - {selected_area}",
+        xaxis_title="Date",
+        yaxis_title=variable_labels[selected_variable],
+        hovermode="x unified",
+        height=500
     )
-    ax.set_xlabel("Date")
-    ax.set_ylabel(variable_labels[selected_variable])
 
-    plt.xticks(rotation=45)
-    fig.tight_layout()
-
-    st.pyplot(fig)
+    # Displays the interactive figure
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        theme=None
+    )
 
 
 # Plots all relevant variables on a common percentage scale
 else:
-    fig, ax = plt.subplots()
+
+    # Creates an interactive Plotly figure
+    fig = go.Figure()
 
     # Gets the reservoir capacity for the selected area
     capacity = area_data["kapasitet_TWh"].iloc[0]
@@ -122,30 +151,55 @@ else:
         filtered_data["endring_fyllingsgrad"] * 100
     )
 
-    # Plots the variables together
-    ax.plot(
-        filtered_data["dato_Id"],
-        fill_level,
-        label="Fill level (%)"
+    # Plots the fill level
+    fig.add_trace(
+        go.Scatter(
+            x=filtered_data["dato_Id"],
+            y=fill_level,
+            mode="lines",
+            name="Fill level (%)",
+            line=dict(
+                color=DARK_BLUE,
+                width=2.5
+            )
+        )
     )
 
-    ax.plot(
-        filtered_data["dato_Id"],
-        previous_week,
-        label="Previous week fill level (%)"
+    # Plots the previous week's fill level
+    fig.add_trace(
+        go.Scatter(
+            x=filtered_data["dato_Id"],
+            y=previous_week,
+            mode="lines",
+            name="Previous week fill level (%)",
+            line=dict(
+                color=WATER_BLUE,
+                width=2,
+                dash="dash"
+            )
+        )
     )
 
-    ax.plot(
-        filtered_data["dato_Id"],
-        weekly_change,
-        label="Weekly change (percentage points)"
+    # Plots the weekly change
+    fig.add_trace(
+        go.Scatter(
+            x=filtered_data["dato_Id"],
+            y=weekly_change,
+            mode="lines",
+            name="Weekly change (percentage points)",
+            line=dict(
+                color=BAUXITE_RED,
+                width=2
+            )
+        )
     )
 
     # Adds a zero line for the weekly change
-    ax.axhline(
+    fig.add_hline(
         y=0,
-        linewidth=0.8,
-        linestyle=":"
+        line_width=1,
+        line_dash="dot",
+        line_color=GREY
     )
 
     # Finds the lowest weekly change in the selected area
@@ -156,25 +210,37 @@ else:
     # Gives some space below the lowest negative value
     lower_limit = min(-5, lowest_change - 2)
 
-    ax.set_ylim(lower_limit, 100)
-
-    # Uses 10-unit intervals on the y-axis
-    ax.yaxis.set_major_locator(MultipleLocator(10))
-
-    ax.set_title(
-        f"Reservoir development - {selected_area}"
+    # Applies the shared Hydro-inspired theme
+    fig.update_layout(
+        template="hydro",
+        title=f"Reservoir development - {selected_area}",
+        xaxis_title="Date",
+        yaxis_title=(
+            "% of total capacity / weekly change (percentage points)"
+        ),
+        hovermode="x unified",
+        height=500,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0
+        )
     )
-    ax.set_xlabel("Date")
-    ax.set_ylabel(
-        "% of total capacity / weekly change (percentage points)"
+
+    # Sets the y-axis range and intervals
+    fig.update_yaxes(
+        range=[lower_limit, 100],
+        dtick=10
     )
 
-    ax.legend()
-
-    plt.xticks(rotation=45)
-    fig.tight_layout()
-
-    st.pyplot(fig)
+    # Displays the interactive figure
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        theme=None
+    )
 
     st.caption(
         f"Reservoir capacity for {selected_area}: "

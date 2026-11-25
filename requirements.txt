@@ -14,3 +14,7 @@ retry-requests
 pyarrow
 geopandas
 shapely
+folium
+streamlit-folium
+branca
+river

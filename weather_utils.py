@@ -1,15 +1,23 @@
-
+# Import necessary libraries
 from pathlib import Path
 import time
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 import openmeteo_requests
 import requests_cache
 from sklearn.neighbors import LocalOutlierFactor
 from retry_requests import retry
 from scipy.fft import dct, idct
+
+from plot_theme import (
+    DARK_BLUE,
+    WATER_BLUE,
+    LIGHT_BLUE,
+    BAUXITE_RED,
+    GREY
+)
 
 
 # Set up a cached session for Open-Meteo requests
@@ -39,7 +47,9 @@ def download_streamlit_weather(
 ):
 
     # Load the sampled coordinates saved from the notebook
-    coordinates_file = Path("data/weather_data/streamlit_coordinates.csv")
+    coordinates_file = Path(
+        "data/weather_data/streamlit_coordinates.csv"
+    )
     coordinates_df = pd.read_csv(coordinates_file)
 
     # Select the 100 coordinates for the requested region
@@ -163,16 +173,59 @@ def download_streamlit_weather(
 
         # Report download progress
         if status_callback is not None:
-            completed = min(start_index + batch_size, len(region_coordinates))
+            completed = min(
+                start_index + batch_size,
+                len(region_coordinates)
+            )
             status_callback(
-                f"Downloaded {completed} of {len(region_coordinates)} locations."
+                f"Downloaded {completed} of "
+                f"{len(region_coordinates)} locations."
             )
 
     # Combine all downloaded batches
-    region_weather_df = pd.concat(region_frames, ignore_index=True)
+    region_weather_df = pd.concat(
+        region_frames,
+        ignore_index=True
+    )
 
     return region_weather_df
 
+
+# ---------------------------------------------------------
+# SHARED WEATHER PLOT DESIGN
+# ---------------------------------------------------------
+
+# Apply consistent styling to all meteorological plots
+def apply_weather_plot_theme(fig, title, yaxis_title):
+
+    fig.update_layout(
+        template="hydro",
+        title=title,
+        xaxis_title="Time",
+        yaxis_title=yaxis_title,
+        height=500,
+        hovermode="closest",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0
+        ),
+        margin=dict(
+            l=60,
+            r=30,
+            t=110,
+            b=60
+        )
+    )
+
+    return fig
+
+
+# ---------------------------------------------------------
+# PRECIPITATION DCT AND SPC
+# ---------------------------------------------------------
 
 # Detect precipitation outliers using DCT and robust SPC
 def detect_precipitation_outliers(data, cutoff=30, n_std=3):
@@ -212,57 +265,90 @@ def detect_precipitation_outliers(data, cutoff=30, n_std=3):
     upper_original = baseline + upper_limit
     lower_original = baseline + lower_limit
 
-    # Create the precipitation outlier plot
-    fig, ax = plt.subplots(figsize=(14, 5))
+    # Create an interactive precipitation outlier plot
+    fig = go.Figure()
 
     # Plot the original mean precipitation
-    ax.plot(
-        time,
-        values,
-        color="steelblue",
-        linewidth=0.7,
-        label="Mean precipitation"
+    fig.add_trace(
+        go.Scatter(
+            x=time,
+            y=values,
+            mode="lines",
+            name="Mean precipitation",
+            line=dict(
+                color=WATER_BLUE,
+                width=1
+            ),
+            hovertemplate=(
+                "%{y:.3f} mm"
+                "<extra>Mean precipitation</extra>"
+            )
+        )
     )
 
     # Plot the upper SPC limit
-    ax.plot(
-        time,
-        upper_original,
-        color="orange",
-        linestyle="--",
-        label="Upper SPC limit"
+    fig.add_trace(
+        go.Scatter(
+            x=time,
+            y=upper_original,
+            mode="lines",
+            name="Upper SPC limit",
+            line=dict(
+                color=BAUXITE_RED,
+                dash="dash",
+                width=1.5
+            ),
+            hovertemplate=(
+                "%{y:.3f} mm"
+                "<extra>Upper SPC limit</extra>"
+            )
+        )
     )
+
     # Plot the lower SPC limit
-    ax.plot(
-        time,
-        lower_original,
-        color="seagreen",
-        linestyle="--",
-        linewidth=1,
-        label="Lower SPC limit"
+    fig.add_trace(
+        go.Scatter(
+            x=time,
+            y=lower_original,
+            mode="lines",
+            name="Lower SPC limit",
+            line=dict(
+                color=BAUXITE_RED,
+                dash="dot",
+                width=1.5
+            ),
+            hovertemplate=(
+                "%{y:.3f} mm"
+                "<extra>Lower SPC limit</extra>"
+            )
+        )
     )
 
     # Highlight detected outliers
-    ax.scatter(
-        time[outliers],
-        values[outliers],
-        color="red",
-        s=12,
-        label="Outliers",
-        zorder=3
+    fig.add_trace(
+        go.Scatter(
+            x=time[outliers],
+            y=values[outliers],
+            mode="markers",
+            name="Outliers",
+            marker=dict(
+                color=BAUXITE_RED,
+                size=5,
+                opacity=0.8
+            ),
+            hovertemplate=(
+                "%{y:.3f} mm"
+                "<extra>Outlier</extra>"
+            )
+        )
     )
 
-    # Add title and axis labels
-    ax.set_title(
-        "Precipitation Outliers (2024) - DCT + SPC"
+    # Apply the shared Hydro-inspired theme
+    fig = apply_weather_plot_theme(
+        fig,
+        title="Precipitation Outliers (2024) - DCT + SPC",
+        yaxis_title="Mean precipitation (mm)"
     )
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Mean precipitation (mm)")
-
-    # Improve plot readability
-    ax.legend()
-    ax.grid(alpha=0.3)
-    fig.tight_layout()
 
     # Return the figure and summary statistics
     summary = {
@@ -275,7 +361,159 @@ def detect_precipitation_outliers(data, cutoff=30, n_std=3):
     return fig, summary
 
 
+# ---------------------------------------------------------
+# TEMPERATURE DCT / SATV / SPC
+# ---------------------------------------------------------
 
+# Calculate seasonally adjusted temperature variations
+# using DCT high-pass filtering
+def detect_temperature_satv(
+    temperature_data,
+    cutoff=30,
+    n_std=3
+):
+
+    # Prepare a chronological series of hourly mean temperatures
+    data = temperature_data.sort_values("time").dropna(
+        subset=["time", "mean_temperature"]
+    ).copy()
+
+    values = data["mean_temperature"].to_numpy(dtype=float)
+
+    if len(values) < 3:
+        raise ValueError(
+            "Not enough temperature observations for DCT filtering."
+        )
+
+    # Remove the slowly varying components of the temperature signal
+    coefficients = dct(values, norm="ortho")
+    filtered_coefficients = coefficients.copy()
+    filtered_coefficients[:min(cutoff, len(values))] = 0
+
+    satv = idct(filtered_coefficients, norm="ortho")
+
+    # Calculate robust SPC thresholds for the filtered temperature variations
+    median = np.median(satv)
+    mad = np.median(np.abs(satv - median))
+    robust_std = 1.4826 * mad
+
+    lower_limit = median - n_std * robust_std
+    upper_limit = median + n_std * robust_std
+
+    # Identify outliers
+    outliers = (
+        (satv < lower_limit) |
+        (satv > upper_limit)
+    )
+
+    # Create an interactive SATV plot
+    fig = go.Figure()
+
+    # Plot SATV itself, rather than the original temperature series
+    fig.add_trace(
+        go.Scatter(
+            x=data["time"],
+            y=satv,
+            mode="lines",
+            name="SATV (DCT high-pass filtered temperature)",
+            line=dict(
+                color=DARK_BLUE,
+                width=1
+            ),
+            hovertemplate=(
+                "%{y:.2f} °C"
+                "<extra>SATV</extra>"
+            )
+        )
+    )
+
+    # Add a horizontal zero reference line
+    fig.add_hline(
+        y=0,
+        line_color=GREY,
+        line_width=1
+    )
+
+    # Plot the upper SPC limit
+    fig.add_trace(
+        go.Scatter(
+            x=data["time"],
+            y=np.full(len(data), upper_limit),
+            mode="lines",
+            name="Upper SPC limit",
+            line=dict(
+                color=BAUXITE_RED,
+                dash="dash",
+                width=1.5
+            ),
+            hovertemplate=(
+                "%{y:.2f} °C"
+                "<extra>Upper SPC limit</extra>"
+            )
+        )
+    )
+
+    # Plot the lower SPC limit
+    fig.add_trace(
+        go.Scatter(
+            x=data["time"],
+            y=np.full(len(data), lower_limit),
+            mode="lines",
+            name="Lower SPC limit",
+            line=dict(
+                color=BAUXITE_RED,
+                dash="dot",
+                width=1.5
+            ),
+            hovertemplate=(
+                "%{y:.2f} °C"
+                "<extra>Lower SPC limit</extra>"
+            )
+        )
+    )
+
+    # Highlight detected temperature outliers
+    fig.add_trace(
+        go.Scatter(
+            x=data.loc[outliers, "time"],
+            y=satv[outliers],
+            mode="markers",
+            name="Outliers",
+            marker=dict(
+                color=BAUXITE_RED,
+                size=5,
+                opacity=0.8
+            ),
+            hovertemplate=(
+                "%{y:.2f} °C"
+                "<extra>Outlier</extra>"
+            )
+        )
+    )
+
+    # Apply the shared Hydro-inspired theme
+    fig = apply_weather_plot_theme(
+        fig,
+        title="Seasonally Adjusted Temperature Variations (2024) - DCT",
+        yaxis_title="Temperature variation (°C)"
+    )
+
+    # Calculate summary statistics
+    count = int(np.sum(outliers))
+
+    summary = {
+        "DCT cutoff": cutoff,
+        "Standard deviations": n_std,
+        "Number of outliers": count,
+        "Percentage (%)": round(100 * count / len(values), 2)
+    }
+
+    return fig, summary
+
+
+# ---------------------------------------------------------
+# TEMPERATURE LOF
+# ---------------------------------------------------------
 
 # Detect temperature anomalies using trend-adjusted LOF
 def detect_temperature_anomalies(
@@ -290,9 +528,14 @@ def detect_temperature_anomalies(
 
     # Calculate a centered moving average
     window_hours = window_days * 24
+
     data["temperature_trend"] = (
         data["mean_temperature"]
-        .rolling(window=window_hours, center=True, min_periods=1)
+        .rolling(
+            window=window_hours,
+            center=True,
+            min_periods=1
+        )
         .mean()
     )
 
@@ -316,41 +559,172 @@ def detect_temperature_anomalies(
     count = int(np.sum(outliers))
     percentage = 100 * count / len(data)
 
-    # Plot original temperature and detected anomalies
-    fig, ax = plt.subplots(figsize=(14, 5))
+    # Create an interactive temperature anomaly plot
+    fig = go.Figure()
 
-    ax.plot(
-        data["time"],
-        data["mean_temperature"],
-        color="steelblue",
-        linewidth=0.7,
-        label="Mean temperature"
+    # Plot the original mean temperature
+    fig.add_trace(
+        go.Scatter(
+            x=data["time"],
+            y=data["mean_temperature"],
+            mode="lines",
+            name="Mean temperature",
+            line=dict(
+                color=DARK_BLUE,
+                width=1
+            ),
+            hovertemplate=(
+                "%{y:.2f} °C"
+                "<extra>Mean temperature</extra>"
+            )
+        )
     )
 
-    ax.scatter(
-        data.loc[outliers, "time"],
-        data.loc[outliers, "mean_temperature"],
-        color="red",
-        s=18,
-        label="LOF anomalies",
-        zorder=3
+    # Highlight detected temperature anomalies
+    fig.add_trace(
+        go.Scatter(
+            x=data.loc[outliers, "time"],
+            y=data.loc[outliers, "mean_temperature"],
+            mode="markers",
+            name="LOF anomalies",
+            marker=dict(
+                color=BAUXITE_RED,
+                size=6,
+                opacity=0.8
+            ),
+            hovertemplate=(
+                "%{y:.2f} °C"
+                "<extra>LOF anomaly</extra>"
+            )
+        )
     )
 
-    ax.set_title(
-        "Temperature Anomalies (2024) - Trend-adjusted LOF"
+    # Apply the shared Hydro-inspired theme
+    fig = apply_weather_plot_theme(
+        fig,
+        title="Temperature Anomalies (2024) - Trend-adjusted LOF",
+        yaxis_title="Mean temperature (°C)"
     )
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Mean temperature (°C)")
-    ax.legend()
-    ax.grid(alpha=0.3)
-
-    fig.tight_layout()
 
     # Return plot and anomaly summary
     summary = {
         "Contamination": contamination,
         "Neighbors": n_neighbors,
         "Window (days)": window_days,
+        "Number of anomalies": count,
+        "Percentage (%)": round(percentage, 2)
+    }
+
+    return fig, summary
+
+
+# ---------------------------------------------------------
+# PRECIPITATION LOF
+# ---------------------------------------------------------
+
+# Detect precipitation anomalies using LOF on non-zero rainfall
+def detect_precipitation_anomalies(
+    precipitation_data,
+    contamination=0.01,
+    n_neighbors=20
+):
+
+    # Sort observations chronologically
+    data = precipitation_data.sort_values("time").copy()
+
+    # Remove missing values
+    data = data.dropna(
+        subset=["mean_precipitation"]
+    )
+
+    # Only analyze hours with measurable precipitation
+    rainy_data = data[
+        data["mean_precipitation"] > 0
+    ].copy()
+
+    # Check that enough rainy observations are available
+    if len(rainy_data) < 3:
+        raise ValueError(
+            "Not enough rainy observations for precipitation LOF."
+        )
+
+    # Apply a log transformation to reduce precipitation skewness
+    rainy_data["log_precipitation"] = np.log1p(
+        rainy_data["mean_precipitation"]
+    )
+
+    # Adjust the number of neighbors to the available observations
+    actual_neighbors = min(
+        n_neighbors,
+        len(rainy_data) - 1
+    )
+
+    # Apply LOF to precipitation intensity
+    values = rainy_data[["log_precipitation"]].to_numpy()
+
+    lof = LocalOutlierFactor(
+        n_neighbors=actual_neighbors,
+        contamination=contamination
+    )
+
+    labels = lof.fit_predict(values)
+    outliers = labels == -1
+
+    # Calculate summary statistics for rainy observations
+    count = int(np.sum(outliers))
+    percentage = 100 * count / len(rainy_data)
+
+    # Create an interactive precipitation anomaly plot
+    fig = go.Figure()
+
+    # Plot the complete precipitation time series
+    fig.add_trace(
+        go.Scatter(
+            x=data["time"],
+            y=data["mean_precipitation"],
+            mode="lines",
+            name="Mean precipitation",
+            line=dict(
+                color=WATER_BLUE,
+                width=1
+            ),
+            hovertemplate=(
+                "%{y:.3f} mm"
+                "<extra>Mean precipitation</extra>"
+            )
+        )
+    )
+
+    # Highlight anomalous rainy observations
+    fig.add_trace(
+        go.Scatter(
+            x=rainy_data.loc[outliers, "time"],
+            y=rainy_data.loc[outliers, "mean_precipitation"],
+            mode="markers",
+            name="LOF anomalies",
+            marker=dict(
+                color=BAUXITE_RED,
+                size=6,
+                opacity=0.8
+            ),
+            hovertemplate=(
+                "%{y:.3f} mm"
+                "<extra>LOF anomaly</extra>"
+            )
+        )
+    )
+
+    # Apply the shared Hydro-inspired theme
+    fig = apply_weather_plot_theme(
+        fig,
+        title="Precipitation Anomalies (2024) - Rainfall intensity LOF",
+        yaxis_title="Mean precipitation (mm)"
+    )
+
+    # Return plot and anomaly summary
+    summary = {
+        "Contamination": contamination,
+        "Neighbors": actual_neighbors,
         "Number of anomalies": count,
         "Percentage (%)": round(percentage, 2)
     }

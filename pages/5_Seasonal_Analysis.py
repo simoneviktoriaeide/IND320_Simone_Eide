@@ -1,12 +1,21 @@
 # Import necessary libraries
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from statsmodels.tsa.seasonal import STL
 import numpy as np
 from scipy.signal import spectrogram
 from data_loader import load_data
 from area_selector import select_area
+from plot_theme import (
+    DARK_BLUE,
+    WATER_BLUE,
+    LIGHT_BLUE,
+    BAUXITE_RED,
+    GREY,
+    WHITE
+)
 
 
 st.title("Seasonal Reservoir Analysis")
@@ -25,6 +34,16 @@ df["area"] = df["omrType"] + df["omrnr"].astype(str)
 
 # Display the shared area selector
 selected_area = select_area()
+
+# Select the chosen reservoir area
+area_data = df[
+    df["area"] == selected_area
+].sort_values("dato_Id").copy()
+
+# Check whether reservoir data is available
+if area_data.empty:
+    st.warning("No reservoir data available for the selected area.")
+    st.stop()
 
 # Create tabs for the two analysis methods
 tab_stl, tab_spectrogram = st.tabs([
@@ -63,11 +82,6 @@ with tab_stl:
         value=True
     )
 
-    # Select the chosen reservoir area
-    area_data = df[
-        df["area"] == selected_area
-    ].sort_values("dato_Id").copy()
-
     # Use reservoir fill level as a percentage
     fill_level = (
         area_data.set_index("dato_Id")["fyllingsgrad"] * 100
@@ -84,17 +98,151 @@ with tab_stl:
 
     result = stl.fit()
 
-    # Plot the decomposition
-    fig = result.plot()
-    fig.set_size_inches(12, 9)
-    fig.suptitle(
-        f"STL Decomposition of Reservoir Fill Level - {selected_area}",
-        fontsize=14
+    # Create four interactive subplots with a shared time axis
+    fig = make_subplots(
+        rows=4,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=[
+            "Observed fill level",
+            "Trend",
+            "Seasonal component",
+            "Residuals"
+        ]
     )
-    fig.tight_layout()
 
-    st.pyplot(fig)
-    plt.close(fig)
+    # Plot the observed reservoir fill level
+    fig.add_trace(
+        go.Scatter(
+            x=fill_level.index,
+            y=result.observed,
+            mode="lines",
+            name="Observed",
+            line=dict(
+                color=DARK_BLUE,
+                width=2
+            )
+        ),
+        row=1,
+        col=1
+    )
+
+    # Plot the long-term trend
+    fig.add_trace(
+        go.Scatter(
+            x=fill_level.index,
+            y=result.trend,
+            mode="lines",
+            name="Trend",
+            line=dict(
+                color=WATER_BLUE,
+                width=2
+            )
+        ),
+        row=2,
+        col=1
+    )
+
+    # Plot the seasonal component
+    fig.add_trace(
+        go.Scatter(
+            x=fill_level.index,
+            y=result.seasonal,
+            mode="lines",
+            name="Seasonal",
+            line=dict(
+                color=DARK_BLUE,
+                width=1.5
+            )
+        ),
+        row=3,
+        col=1
+    )
+
+    # Plot the residuals
+    fig.add_trace(
+        go.Scatter(
+            x=fill_level.index,
+            y=result.resid,
+            mode="markers",
+            name="Residuals",
+            marker=dict(
+                color=BAUXITE_RED,
+                size=4,
+                opacity=0.7
+            )
+        ),
+        row=4,
+        col=1
+    )
+
+    # Add zero lines to the seasonal and residual components
+    fig.add_hline(
+        y=0,
+        line_dash="dot",
+        line_color=GREY,
+        row=3,
+        col=1
+    )
+
+    fig.add_hline(
+        y=0,
+        line_dash="dot",
+        line_color=GREY,
+        row=4,
+        col=1
+    )
+
+    # Label the axes
+    fig.update_yaxes(
+        title_text="Fill level (%)",
+        row=1,
+        col=1
+    )
+
+    fig.update_yaxes(
+        title_text="Trend (%)",
+        row=2,
+        col=1
+    )
+
+    fig.update_yaxes(
+        title_text="Seasonal (pp)",
+        row=3,
+        col=1
+    )
+
+    fig.update_yaxes(
+        title_text="Residuals (pp)",
+        row=4,
+        col=1
+    )
+
+    fig.update_xaxes(
+        title_text="Date",
+        row=4,
+        col=1
+    )
+
+    # Apply the shared Hydro-inspired theme
+    fig.update_layout(
+        template="hydro",
+        title=(
+            f"STL Decomposition of Reservoir Fill Level"
+            f" - {selected_area}"
+        ),
+        height=850,
+        showlegend=False,
+        hovermode="x unified"
+    )
+
+    # Display the interactive STL decomposition
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        theme=None
+    )
 
 
 # Spectrogram tab
@@ -120,6 +268,7 @@ with tab_spectrogram:
         max_value=window_length - 1,
         value=min(52, window_length - 1)
     )
+
     # Allow the user to adjust the displayed frequency range
     max_frequency = st.slider(
         "Maximum frequency (cycles per year)",
@@ -128,11 +277,6 @@ with tab_spectrogram:
         value=5,
         step=1
     )
-
-    # Select the chosen reservoir area and sort by date
-    area_data = df[
-        df["area"] == selected_area
-    ].sort_values("dato_Id").copy()
 
     # Convert reservoir fill levels to percentages
     fill_level = area_data["fyllingsgrad"].to_numpy() * 100
@@ -154,40 +298,70 @@ with tab_spectrogram:
     # Convert power to decibels for easier visualization
     power_db = 10 * np.log10(power + 1e-12)
 
-    # Create the spectrogram plot
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    mesh = ax.pcolormesh(
-        times / 52 + area_data["dato_Id"].dt.year.iloc[0],
-        frequencies_per_year,
-        power_db,
-        shading="auto",
-        cmap="viridis"
+    # Convert time offsets in weeks to calendar dates
+    spectrogram_dates = (
+        area_data["dato_Id"].iloc[0]
+        + pd.to_timedelta(times, unit="W")
     )
 
-    # Add a colorbar to show the strength of each frequency
-    fig.colorbar(mesh, ax=ax, label="Power (dB)")
+    # Define a Hydro-inspired sequential colour scale
+    hydro_colorscale = [
+        [0.0, WHITE],
+        [0.3, "#D6EAF0"],
+        [0.5, LIGHT_BLUE],
+        [0.75, WATER_BLUE],
+        [1.0, DARK_BLUE]
+    ]
 
-    # Label the axes and add a title
-    ax.set_title(
-        f"Spectrogram of Reservoir Fill Level - {selected_area}"
+    # Create the interactive spectrogram
+    fig = go.Figure(
+        data=go.Heatmap(
+            x=spectrogram_dates,
+            y=frequencies_per_year,
+            z=power_db,
+            colorscale=hydro_colorscale,
+            colorbar=dict(
+                title="Power (dB)"
+            ),
+            hovertemplate=(
+                "Date: %{x|%Y-%m-%d}<br>"
+                "Frequency: %{y:.2f} cycles/year<br>"
+                "Power: %{z:.2f} dB"
+                "<extra></extra>"
+            )
+        )
     )
-    ax.set_xlabel("Year")
-    ax.set_ylabel("Frequency (cycles per year)")
-    # Limit the displayed frequency range
-    ax.set_ylim(0, max_frequency)
 
     # Highlight the expected annual seasonal frequency
-    ax.axhline(
-        1,
-        color="red",
-        linestyle="--",
-        label="Annual cycle"
+    fig.add_hline(
+        y=1,
+        line_color=BAUXITE_RED,
+        line_dash="dash",
+        line_width=2,
+        annotation_text="Annual cycle",
+        annotation_position="top right"
     )
-    ax.legend()
 
-    fig.tight_layout()
+    # Apply the shared Hydro-inspired theme
+    fig.update_layout(
+        template="hydro",
+        title=(
+            f"Spectrogram of Reservoir Fill Level"
+            f" - {selected_area}"
+        ),
+        xaxis_title="Date",
+        yaxis_title="Frequency (cycles per year)",
+        height=550
+    )
 
-    # Display the spectrogram in Streamlit
-    st.pyplot(fig)
-    plt.close(fig)
+    # Limit the displayed frequency range
+    fig.update_yaxes(
+        range=[0, max_frequency]
+    )
+
+    # Display the interactive spectrogram
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        theme=None
+    )
